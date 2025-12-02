@@ -33,7 +33,7 @@ except ImportError:
     LIBROSA_AVAILABLE = False
     print("⚠ librosa not available - using manual implementation (Python 3.14 compatible)")
 
-OUTPUT_DIR = Path("outputs")
+OUTPUT_DIR = Path("outputs/step4")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 

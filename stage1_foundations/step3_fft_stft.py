@@ -21,7 +21,7 @@ from pathlib import Path
 from scipy import signal as scipy_signal
 from scipy.fft import fft, fftfreq, rfft, rfftfreq
 
-OUTPUT_DIR = Path("outputs")
+OUTPUT_DIR = Path("outputs/step3")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 

@@ -25,7 +25,7 @@ from scipy import signal as scipy_signal
 import webrtcvad
 import struct
 
-OUTPUT_DIR = Path("outputs")
+OUTPUT_DIR = Path("outputs/step6")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 

@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import wave
 
-OUTPUT_DIR = Path("outputs")
+OUTPUT_DIR = Path("outputs/step2")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 

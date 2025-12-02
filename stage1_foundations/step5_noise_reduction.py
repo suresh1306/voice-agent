@@ -23,7 +23,7 @@ from scipy import signal as scipy_signal
 from scipy.fft import rfft, irfft, rfftfreq
 import soundfile as sf
 
-OUTPUT_DIR = Path("outputs")
+OUTPUT_DIR = Path("outputs/step5")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
