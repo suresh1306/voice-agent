@@ -22,10 +22,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy import signal as scipy_signal
-import webrtcvad
 import struct
 
-OUTPUT_DIR = Path("outputs/step6")
+# Try to import webrtcvad, but work without it if not available
+try:
+    import webrtcvad
+    WEBRTCVAD_AVAILABLE = True
+    print("✓ webrtcvad detected - WebRTC VAD will be included in demonstrations")
+except ImportError:
+    WEBRTCVAD_AVAILABLE = False
+    print("⚠ webrtcvad not available - WebRTC VAD will be skipped")
+    print("  To use WebRTC VAD, run: pip install setuptools webrtcvad")
+
+OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
@@ -225,6 +234,9 @@ def webrtc_vad_detect(signal, sample_rate, frame_ms=30, aggressiveness=3):
     Returns:
         voice_activity: Boolean array
     """
+    if not WEBRTCVAD_AVAILABLE:
+        raise ImportError("webrtcvad is not available. Install with: pip install setuptools webrtcvad")
+
     # WebRTC VAD only supports specific configurations
     if sample_rate not in [8000, 16000, 32000, 48000]:
         raise ValueError("WebRTC VAD requires sample rate of 8000, 16000, 32000, or 48000 Hz")
@@ -349,7 +361,12 @@ def demonstrate_vad_comparison():
     energy_va, frame_size = energy_vad(signal, sr, frame_ms, threshold_db=-40)
     zcr_va, _ = zcr_vad(signal, sr, frame_ms, zcr_threshold=0.3)
     spectral_va, _ = spectral_vad(signal, sr, frame_ms, freq_threshold=0.5)
-    webrtc_va, _ = webrtc_vad_detect(signal, sr, frame_ms=30, aggressiveness=3)
+
+    # Only run WebRTC VAD if available
+    if WEBRTCVAD_AVAILABLE:
+        webrtc_va, _ = webrtc_vad_detect(signal, sr, frame_ms=30, aggressiveness=3)
+    else:
+        webrtc_va = None
 
     # Downsample ground truth to frame level
     num_frames = len(energy_va)
@@ -369,8 +386,11 @@ def demonstrate_vad_comparison():
         'Energy-based': energy_va,
         'Zero-Crossing Rate': zcr_va,
         'Spectral': spectral_va,
-        'WebRTC': webrtc_va[:len(ground_truth)]  # WebRTC uses 30ms frames
     }
+
+    # Add WebRTC if available
+    if WEBRTCVAD_AVAILABLE and webrtc_va is not None:
+        methods['WebRTC'] = webrtc_va[:len(ground_truth)]  # WebRTC uses 30ms frames
 
     print(f"\n{'Method':<20} {'Accuracy':<12} {'Precision':<12} {'Recall':<12} {'F1'}")
     print("-" * 70)
@@ -385,7 +405,8 @@ def demonstrate_vad_comparison():
               f"{metrics['recall']:.3f}       {metrics['f1']:.3f}")
 
     # Visualize
-    fig, axes = plt.subplots(6, 1, figsize=(14, 14))
+    num_plots = 6 if WEBRTCVAD_AVAILABLE and webrtc_va is not None else 5
+    fig, axes = plt.subplots(num_plots, 1, figsize=(14, num_plots * 2.3))
 
     t = np.arange(len(signal)) / sr
 
@@ -418,20 +439,25 @@ def demonstrate_vad_comparison():
     axes[3].grid(True, alpha=0.3)
 
     # Spectral
+    last_plot_idx = 4
     axes[4].fill_between(t_frames, 0, spectral_va, step='post', alpha=0.7, color='purple')
     axes[4].set_ylabel('Speech')
     axes[4].set_title(f'Spectral VAD (Acc: {calculate_vad_metrics(spectral_va, ground_truth)["accuracy"]:.3f})')
     axes[4].set_ylim(-0.1, 1.1)
     axes[4].grid(True, alpha=0.3)
 
-    # WebRTC
-    webrtc_adjusted = webrtc_va[:len(ground_truth)]
-    axes[5].fill_between(t_frames[:len(webrtc_adjusted)], 0, webrtc_adjusted, step='post', alpha=0.7, color='red')
-    axes[5].set_xlabel('Time (seconds)')
-    axes[5].set_ylabel('Speech')
-    axes[5].set_title(f'WebRTC VAD (Acc: {calculate_vad_metrics(webrtc_adjusted, ground_truth)["accuracy"]:.3f})')
-    axes[5].set_ylim(-0.1, 1.1)
-    axes[5].grid(True, alpha=0.3)
+    # WebRTC (only if available)
+    if WEBRTCVAD_AVAILABLE and webrtc_va is not None:
+        webrtc_adjusted = webrtc_va[:len(ground_truth)]
+        axes[5].fill_between(t_frames[:len(webrtc_adjusted)], 0, webrtc_adjusted, step='post', alpha=0.7, color='red')
+        axes[5].set_ylabel('Speech')
+        axes[5].set_title(f'WebRTC VAD (Acc: {calculate_vad_metrics(webrtc_adjusted, ground_truth)["accuracy"]:.3f})')
+        axes[5].set_ylim(-0.1, 1.1)
+        axes[5].grid(True, alpha=0.3)
+        last_plot_idx = 5
+
+    # Set xlabel on last plot
+    axes[last_plot_idx].set_xlabel('Time (seconds)')
 
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "vad_comparison.png", dpi=150, bbox_inches='tight')

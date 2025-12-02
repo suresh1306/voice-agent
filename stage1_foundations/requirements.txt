@@ -22,6 +22,9 @@ matplotlib>=3.4.0
 # Voice Activity Detection
 webrtcvad>=2.0.10
 
+# setuptools (required by webrtcvad for pkg_resources)
+setuptools>=65.0.0
+
 # ============================================================
 # OPTIONAL: For Python 3.10-3.13 only
 # ============================================================
