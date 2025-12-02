@@ -1,0 +1,107 @@
+# Stage 2: Speech-to-Text (ASR)
+# Python dependencies for ASR learning and implementation
+
+# ============================================================
+# PYTHON 3.14 COMPATIBLE - Core Dependencies
+# ============================================================
+
+# Core numerical computing
+numpy>=1.21.0
+
+# Scientific computing
+scipy>=1.7.0
+
+# Visualization
+matplotlib>=3.4.0
+
+# ============================================================
+# ASR Libraries (Steps 4-6 - Practical Implementation)
+# ============================================================
+
+# HuggingFace Transformers - For Wav2Vec2, Whisper
+transformers>=4.30.0
+
+# PyTorch - Deep learning framework
+# Note: Install separately for GPU support
+# CPU: pip install torch
+# GPU: See https://pytorch.org/get-started/locally/
+torch>=2.0.0
+
+# Audio processing
+torchaudio>=2.0.0
+soundfile>=0.12.0
+
+# ============================================================
+# Optional: Faster Inference
+# ============================================================
+
+# Faster Whisper inference (optional but recommended)
+# faster-whisper>=0.9.0
+
+# ONNX Runtime for optimized inference (optional)
+# onnxruntime>=1.15.0
+
+# ============================================================
+# Optional: Model Training/Fine-tuning
+# ============================================================
+
+# For fine-tuning models (optional)
+# datasets>=2.14.0
+# accelerate>=0.20.0
+# evaluate>=0.4.0
+# jiwer>=3.0.0  # For WER calculation
+
+# ============================================================
+# INSTALLATION NOTES
+# ============================================================
+#
+# Basic Installation (Steps 1-3 - Theory):
+#   pip install numpy scipy matplotlib
+#
+# Full Installation (Steps 4-6 - Practical):
+#   pip install -r requirements.txt
+#
+# GPU Support (Recommended for Steps 4-6):
+#   # For CUDA 11.8:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+#
+#   # For CUDA 12.1:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+#
+# Minimal Install (Theory only):
+#   pip install numpy scipy matplotlib
+#   (Can run Steps 1-3 without PyTorch)
+#
+# Production Install (with optimizations):
+#   pip install -r requirements.txt
+#   pip install faster-whisper onnxruntime
+#
+# ============================================================
+# MODEL DOWNLOADS
+# ============================================================
+#
+# Models will auto-download on first use to:
+#   ~/.cache/huggingface/
+#
+# To pre-download models:
+#   python -c "from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor; \
+#              Wav2Vec2ForCTC.from_pretrained('facebook/wav2vec2-base-960h')"
+#
+# Whisper models:
+#   pip install openai-whisper
+#   whisper --model base audio.wav
+#
+# ============================================================
+# DISK SPACE REQUIREMENTS
+# ============================================================
+#
+# Models sizes:
+#   - Wav2Vec2 base: ~360 MB
+#   - Wav2Vec2 large: ~1.2 GB
+#   - Whisper tiny: ~75 MB
+#   - Whisper base: ~145 MB
+#   - Whisper small: ~490 MB
+#   - Whisper medium: ~1.5 GB
+#   - Whisper large: ~3 GB
+#
+# Recommendation: Start with small models, upgrade as needed
