@@ -34,7 +34,7 @@ except ImportError:
     print("⚠ webrtcvad not available - WebRTC VAD will be skipped")
     print("  To use WebRTC VAD, run: pip install setuptools webrtcvad")
 
-OUTPUT_DIR = Path("outputs")
+OUTPUT_DIR = Path("outputs/step6")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
