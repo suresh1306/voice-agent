@@ -1,6 +1,6 @@
 """
-Step 4: Mel Spectrograms
-=========================
+Step 4: Mel Spectrograms (Python 3.14 Compatible)
+==================================================
 Learn perceptual frequency representation:
 - Mel Scale: Mimics human hearing (logarithmic perception)
 - Mel Filterbanks: Group frequencies like human ear
@@ -13,15 +13,25 @@ Key Concepts:
 - Mel filterbanks: Overlapping triangular filters
 - MFCCs: Compact representation (typically 13-40 coefficients)
 - Critical for Whisper, Wav2Vec2, and other ASR models
+
+NOTE: This version works without librosa for Python 3.14 compatibility.
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy import signal as scipy_signal
-from scipy.fft import fft, rfft, rfftfreq
-import librosa
-import librosa.display
+from scipy.fft import fft, rfft, rfftfreq, dct
+
+# Try to import librosa, but work without it for Python 3.14
+try:
+    import librosa
+    import librosa.display
+    LIBROSA_AVAILABLE = True
+    print("✓ librosa detected - using optimized implementation")
+except ImportError:
+    LIBROSA_AVAILABLE = False
+    print("⚠ librosa not available - using manual implementation (Python 3.14 compatible)")
 
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -35,6 +45,236 @@ def hz_to_mel(freq_hz):
 def mel_to_hz(mel):
     """Convert frequency from Mel scale to Hz."""
     return 700 * (10 ** (mel / 2595) - 1)
+
+
+def power_to_db(power_spec, ref=None):
+    """Convert power spectrogram to dB scale."""
+    if ref is None:
+        ref = np.max(power_spec)
+    return 10 * np.log10(power_spec / ref + 1e-10)
+
+
+def create_mel_filterbank(n_filters, fft_size, sample_rate, fmin=0, fmax=None):
+    """
+    Create Mel filterbank.
+
+    Args:
+        n_filters: Number of Mel filters
+        fft_size: FFT size
+        sample_rate: Sample rate in Hz
+        fmin: Minimum frequency (Hz)
+        fmax: Maximum frequency (Hz), defaults to Nyquist
+
+    Returns:
+        Mel filterbank matrix (n_filters x fft_bins)
+    """
+    if fmax is None:
+        fmax = sample_rate / 2
+
+    # Convert to Mel scale
+    mel_min = hz_to_mel(fmin)
+    mel_max = hz_to_mel(fmax)
+
+    # Create evenly spaced points in Mel scale
+    mel_points = np.linspace(mel_min, mel_max, n_filters + 2)
+
+    # Convert back to Hz
+    hz_points = mel_to_hz(mel_points)
+
+    # Convert to FFT bin numbers
+    bin_points = np.floor((fft_size + 1) * hz_points / sample_rate).astype(int)
+
+    # Create filterbank
+    filterbank = np.zeros((n_filters, fft_size // 2 + 1))
+
+    for i in range(n_filters):
+        left = bin_points[i]
+        center = bin_points[i + 1]
+        right = bin_points[i + 2]
+
+        # Rising slope
+        for j in range(left, center):
+            if j < filterbank.shape[1]:
+                filterbank[i, j] = (j - left) / (center - left)
+
+        # Falling slope
+        for j in range(center, right):
+            if j < filterbank.shape[1]:
+                filterbank[i, j] = (right - j) / (right - center)
+
+    return filterbank, hz_points
+
+
+def compute_mel_spectrogram_manual(signal, sample_rate, n_fft=512, hop_length=256,
+                                   n_mels=40, fmin=0, fmax=None):
+    """
+    Compute Mel spectrogram manually (without librosa).
+
+    Args:
+        signal: Audio signal
+        sample_rate: Sample rate in Hz
+        n_fft: FFT size
+        hop_length: Hop length
+        n_mels: Number of Mel bands
+        fmin: Minimum frequency
+        fmax: Maximum frequency
+
+    Returns:
+        Mel spectrogram in dB scale
+    """
+    # Compute STFT
+    f, t, Zxx = scipy_signal.stft(
+        signal,
+        fs=sample_rate,
+        nperseg=n_fft,
+        noverlap=n_fft - hop_length,
+        nfft=n_fft
+    )
+
+    # Compute power spectrogram
+    power_spec = np.abs(Zxx) ** 2
+
+    # Create Mel filterbank
+    mel_filterbank, _ = create_mel_filterbank(n_mels, n_fft, sample_rate, fmin, fmax)
+
+    # Apply filterbank
+    mel_spec = np.dot(mel_filterbank, power_spec)
+
+    # Convert to dB
+    mel_spec_db = power_to_db(mel_spec)
+
+    return mel_spec_db, t
+
+
+def compute_mel_spectrogram(signal, sample_rate, n_fft=512, hop_length=256,
+                           n_mels=40, fmin=0, fmax=None):
+    """
+    Compute Mel spectrogram (uses librosa if available, otherwise manual).
+    """
+    if LIBROSA_AVAILABLE:
+        mel_spec = librosa.feature.melspectrogram(
+            y=signal,
+            sr=sample_rate,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            n_mels=n_mels,
+            fmin=fmin,
+            fmax=fmax
+        )
+        mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+        t = np.arange(mel_spec_db.shape[1]) * hop_length / sample_rate
+        return mel_spec_db, t
+    else:
+        return compute_mel_spectrogram_manual(signal, sample_rate, n_fft, hop_length,
+                                             n_mels, fmin, fmax)
+
+
+def compute_mfcc_manual(signal, sample_rate, n_mfcc=13, n_fft=512, hop_length=256):
+    """
+    Compute MFCCs manually (without librosa).
+
+    Args:
+        signal: Audio signal
+        sample_rate: Sample rate
+        n_mfcc: Number of MFCC coefficients
+        n_fft: FFT size
+        hop_length: Hop length
+
+    Returns:
+        MFCCs
+    """
+    # Compute mel spectrogram
+    mel_spec_db, _ = compute_mel_spectrogram_manual(
+        signal, sample_rate, n_fft, hop_length, n_mels=40
+    )
+
+    # Convert from dB back to power
+    mel_spec_power = 10 ** (mel_spec_db / 10)
+
+    # Apply DCT (Discrete Cosine Transform)
+    mfccs = dct(mel_spec_power, type=2, axis=0, norm='ortho')[:n_mfcc]
+
+    return mfccs
+
+
+def compute_mfcc(signal, sample_rate, n_mfcc=13, n_fft=512, hop_length=256):
+    """Compute MFCCs (uses librosa if available, otherwise manual)."""
+    if LIBROSA_AVAILABLE:
+        return librosa.feature.mfcc(
+            y=signal,
+            sr=sample_rate,
+            n_mfcc=n_mfcc,
+            n_fft=n_fft,
+            hop_length=hop_length
+        )
+    else:
+        return compute_mfcc_manual(signal, sample_rate, n_mfcc, n_fft, hop_length)
+
+
+def plot_spectrogram(data, times, sample_rate, ax, title, ylabel='Frequency',
+                     y_scale='linear', fmax=None):
+    """
+    Plot spectrogram (librosa-independent).
+
+    Args:
+        data: Spectrogram data
+        times: Time axis
+        sample_rate: Sample rate
+        ax: Matplotlib axis
+        title: Plot title
+        ylabel: Y-axis label
+        y_scale: 'linear' or 'mel'
+        fmax: Maximum frequency for y-axis
+    """
+    if y_scale == 'mel':
+        # For Mel scale, just use imshow
+        extent = [times[0], times[-1], 0, data.shape[0]]
+        im = ax.imshow(data, aspect='auto', origin='lower', cmap='viridis',
+                      extent=extent, interpolation='nearest')
+        ax.set_ylabel(ylabel)
+    else:
+        # For linear frequency scale
+        freqs = np.linspace(0, sample_rate/2, data.shape[0])
+        im = ax.pcolormesh(times, freqs, data, shading='gouraud', cmap='viridis')
+        ax.set_ylabel(ylabel)
+        if fmax:
+            ax.set_ylim(0, fmax)
+
+    ax.set_xlabel('Time (seconds)')
+    ax.set_title(title)
+    return im
+
+
+def generate_speech_like_signal(duration=2.0, sample_rate=16000):
+    """Generate a speech-like signal with formants."""
+    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+
+    # Fundamental frequency (pitch) varies over time
+    f0 = 150 + 50 * np.sin(2 * np.pi * 3 * t)  # Varying pitch
+
+    # Create voiced segments
+    signal = np.sin(2 * np.pi * f0 * t)
+
+    # Add formants (resonances typical of vowels)
+    # Formant frequencies for /a/ sound
+    formants = [700, 1220, 2600]
+    bandwidths = [130, 70, 160]
+
+    for fc, bw in zip(formants, bandwidths):
+        # Create formant using bandpass filter
+        sos = scipy_signal.butter(4, [fc - bw/2, fc + bw/2], btype='band',
+                                 fs=sample_rate, output='sos')
+        formant_signal = scipy_signal.sosfilt(sos, signal)
+        signal += 0.3 * formant_signal
+
+    # Add some unvoiced segments (noise)
+    noise_mask = (t % 0.5 < 0.1)  # Periodic noise bursts
+    signal[noise_mask] += 0.5 * np.random.randn(np.sum(noise_mask))
+
+    # Normalize
+    signal = signal / np.max(np.abs(signal)) * 0.8
+
+    return signal, sample_rate
 
 
 def demonstrate_mel_scale():
@@ -98,55 +338,6 @@ def demonstrate_mel_scale():
     print(f"\n✓ Saved: {OUTPUT_DIR / 'mel_scale.png'}")
 
 
-def create_mel_filterbank(n_filters, fft_size, sample_rate, fmin=0, fmax=None):
-    """
-    Create Mel filterbank.
-
-    Args:
-        n_filters: Number of Mel filters
-        fft_size: FFT size
-        sample_rate: Sample rate in Hz
-        fmin: Minimum frequency (Hz)
-        fmax: Maximum frequency (Hz), defaults to Nyquist
-
-    Returns:
-        Mel filterbank matrix (n_filters x fft_bins)
-    """
-    if fmax is None:
-        fmax = sample_rate / 2
-
-    # Convert to Mel scale
-    mel_min = hz_to_mel(fmin)
-    mel_max = hz_to_mel(fmax)
-
-    # Create evenly spaced points in Mel scale
-    mel_points = np.linspace(mel_min, mel_max, n_filters + 2)
-
-    # Convert back to Hz
-    hz_points = mel_to_hz(mel_points)
-
-    # Convert to FFT bin numbers
-    bin_points = np.floor((fft_size + 1) * hz_points / sample_rate).astype(int)
-
-    # Create filterbank
-    filterbank = np.zeros((n_filters, fft_size // 2 + 1))
-
-    for i in range(n_filters):
-        left = bin_points[i]
-        center = bin_points[i + 1]
-        right = bin_points[i + 2]
-
-        # Rising slope
-        for j in range(left, center):
-            filterbank[i, j] = (j - left) / (center - left)
-
-        # Falling slope
-        for j in range(center, right):
-            filterbank[i, j] = (right - j) / (right - center)
-
-    return filterbank, hz_points
-
-
 def demonstrate_mel_filterbank():
     """Demonstrate Mel filterbank construction."""
     print("\n" + "="*60)
@@ -208,57 +399,6 @@ def demonstrate_mel_filterbank():
         print(f"  Filter {i+1:2d}: {hz_points[i+1]:6.1f} Hz")
 
 
-def generate_speech_like_signal(duration=2.0, sample_rate=16000):
-    """Generate a speech-like signal with formants."""
-    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
-
-    # Fundamental frequency (pitch) varies over time
-    f0 = 150 + 50 * np.sin(2 * np.pi * 3 * t)  # Varying pitch
-
-    # Create voiced segments
-    signal = np.sin(2 * np.pi * f0 * t)
-
-    # Add formants (resonances typical of vowels)
-    # Formant frequencies for /a/ sound
-    formants = [700, 1220, 2600]
-    bandwidths = [130, 70, 160]
-
-    for fc, bw in zip(formants, bandwidths):
-        # Create formant using bandpass filter
-        sos = scipy_signal.butter(4, [fc - bw/2, fc + bw/2], btype='band',
-                                   fs=sample_rate, output='sos')
-        formant_signal = scipy_signal.sosfilt(sos, signal)
-        signal += 0.3 * formant_signal
-
-    # Add some unvoiced segments (noise)
-    noise_mask = (t % 0.5 < 0.1)  # Periodic noise bursts
-    signal[noise_mask] += 0.5 * np.random.randn(np.sum(noise_mask))
-
-    # Normalize
-    signal = signal / np.max(np.abs(signal)) * 0.8
-
-    return signal, sample_rate
-
-
-def compute_mel_spectrogram(signal, sample_rate, n_fft=512, hop_length=256,
-                           n_mels=40, fmin=0, fmax=None):
-    """Compute Mel spectrogram using librosa."""
-    mel_spec = librosa.feature.melspectrogram(
-        y=signal,
-        sr=sample_rate,
-        n_fft=n_fft,
-        hop_length=hop_length,
-        n_mels=n_mels,
-        fmin=fmin,
-        fmax=fmax
-    )
-
-    # Convert to dB
-    mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
-
-    return mel_spec_db
-
-
 def demonstrate_mel_spectrogram():
     """Demonstrate Mel spectrogram computation."""
     print("\n" + "="*60)
@@ -286,7 +426,7 @@ def demonstrate_mel_spectrogram():
     regular_spec_db = 10 * np.log10(regular_spec**2 + 1e-10)
 
     # Compute Mel spectrogram
-    mel_spec_db = compute_mel_spectrogram(signal, sample_rate, n_fft, hop_length, n_mels)
+    mel_spec_db, t_mel = compute_mel_spectrogram(signal, sample_rate, n_fft, hop_length, n_mels)
 
     # Visualize
     fig, axes = plt.subplots(3, 1, figsize=(14, 12))
@@ -308,13 +448,10 @@ def demonstrate_mel_spectrogram():
     plt.colorbar(im1, ax=axes[1], label='Power (dB)')
 
     # Mel spectrogram
-    img = librosa.display.specshow(mel_spec_db, sr=sample_rate, hop_length=hop_length,
-                                   x_axis='time', y_axis='mel', ax=axes[2],
-                                   cmap='viridis', fmax=sample_rate/2)
-    axes[2].set_ylabel('Mel Frequency')
-    axes[2].set_xlabel('Time (seconds)')
-    axes[2].set_title('Mel Spectrogram (Perceptual Frequency Scale)')
-    plt.colorbar(img, ax=axes[2], label='Power (dB)')
+    im2 = plot_spectrogram(mel_spec_db, t_mel, sample_rate, axes[2],
+                          'Mel Spectrogram (Perceptual Frequency Scale)',
+                          ylabel='Mel Band', y_scale='mel')
+    plt.colorbar(im2, ax=axes[2], label='Power (dB)')
 
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "mel_spectrogram_comparison.png", dpi=150, bbox_inches='tight')
@@ -336,38 +473,20 @@ def compare_mel_resolutions():
 
     for idx, n_mels in enumerate(n_mels_options):
         # Compute Mel spectrogram
-        mel_spec_db = compute_mel_spectrogram(signal, sample_rate, n_mels=n_mels)
+        mel_spec_db, t_mel = compute_mel_spectrogram(signal, sample_rate, n_mels=n_mels)
 
         print(f"\n{n_mels} Mel Bands:")
         print(f"  Shape: {mel_spec_db.shape}")
         print(f"  Frequency Resolution: ~{sample_rate/(2*n_mels):.1f} Hz per band (approx)")
 
         # Plot
-        img = librosa.display.specshow(mel_spec_db, sr=sample_rate,
-                                       x_axis='time', y_axis='mel', ax=axes[idx],
-                                       cmap='viridis', fmax=sample_rate/2)
-        axes[idx].set_ylabel('Mel Freq')
-        axes[idx].set_title(f'{n_mels} Mel Bands')
-        plt.colorbar(img, ax=axes[idx], label='dB')
-
-        if idx == len(n_mels_options) - 1:
-            axes[idx].set_xlabel('Time (seconds)')
+        im = plot_spectrogram(mel_spec_db, t_mel, sample_rate, axes[idx],
+                             f'{n_mels} Mel Bands', ylabel='Mel Band', y_scale='mel')
+        plt.colorbar(im, ax=axes[idx], label='dB')
 
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "mel_spectrogram_resolutions.png", dpi=150, bbox_inches='tight')
     print(f"\n✓ Saved: {OUTPUT_DIR / 'mel_spectrogram_resolutions.png'}")
-
-
-def compute_mfcc(signal, sample_rate, n_mfcc=13, n_fft=512, hop_length=256):
-    """Compute MFCCs (Mel-Frequency Cepstral Coefficients)."""
-    mfccs = librosa.feature.mfcc(
-        y=signal,
-        sr=sample_rate,
-        n_mfcc=n_mfcc,
-        n_fft=n_fft,
-        hop_length=hop_length
-    )
-    return mfccs
 
 
 def demonstrate_mfcc():
@@ -391,7 +510,7 @@ def demonstrate_mfcc():
     mfccs = compute_mfcc(signal, sample_rate, n_mfcc, n_fft, hop_length)
 
     # Compute Mel spectrogram for comparison
-    mel_spec_db = compute_mel_spectrogram(signal, sample_rate, n_fft, hop_length, n_mels=40)
+    mel_spec_db, t_mel = compute_mel_spectrogram(signal, sample_rate, n_fft, hop_length, n_mels=40)
 
     print(f"\nMFCC Configuration:")
     print(f"  Number of MFCCs: {n_mfcc}")
@@ -411,20 +530,19 @@ def demonstrate_mfcc():
     axes[0].grid(True, alpha=0.3)
 
     # Mel spectrogram
-    img1 = librosa.display.specshow(mel_spec_db, sr=sample_rate, hop_length=hop_length,
-                                    x_axis='time', y_axis='mel', ax=axes[1],
-                                    cmap='viridis')
-    axes[1].set_ylabel('Mel Frequency')
-    axes[1].set_title('Mel Spectrogram (40 bands)')
-    plt.colorbar(img1, ax=axes[1], label='dB')
+    im1 = plot_spectrogram(mel_spec_db, t_mel, sample_rate, axes[1],
+                          'Mel Spectrogram (40 bands)', ylabel='Mel Band', y_scale='mel')
+    plt.colorbar(im1, ax=axes[1], label='dB')
 
     # MFCCs
-    img2 = librosa.display.specshow(mfccs, sr=sample_rate, hop_length=hop_length,
-                                    x_axis='time', ax=axes[2], cmap='coolwarm')
+    t_mfcc = np.arange(mfccs.shape[1]) * hop_length / sample_rate
+    im2 = axes[2].imshow(mfccs, aspect='auto', origin='lower', cmap='coolwarm',
+                        extent=[t_mfcc[0], t_mfcc[-1], 0, n_mfcc],
+                        interpolation='nearest')
     axes[2].set_ylabel('MFCC Coefficient')
     axes[2].set_xlabel('Time (seconds)')
     axes[2].set_title(f'MFCCs ({n_mfcc} coefficients) - Compact Representation')
-    plt.colorbar(img2, ax=axes[2], label='Value')
+    plt.colorbar(im2, ax=axes[2], label='Value')
 
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "mfcc_analysis.png", dpi=150, bbox_inches='tight')
@@ -510,6 +628,13 @@ def main():
     print("\n" + "="*60)
     print("STAGE 1, STEP 4: MEL SPECTROGRAMS")
     print("="*60)
+
+    if not LIBROSA_AVAILABLE:
+        print("\n" + "⚠"*60)
+        print("  PYTHON 3.14 MODE: Using manual implementation")
+        print("  This is normal! All functionality is preserved.")
+        print("⚠"*60)
+
     print("\nLearning Objectives:")
     print("1. Understanding perceptual frequency (Mel scale)")
     print("2. Mel filterbanks and their construction")
