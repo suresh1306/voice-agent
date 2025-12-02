@@ -116,7 +116,7 @@ def calculate_snr(signal, noise):
     return snr_db
 
 
-def estimate_noise_profile(noisy_signal, sample_rate, noise_duration=0.5):
+def estimate_noise_profile(noisy_signal, sample_rate, noise_duration=0.5, n_fft=None):
     """
     Estimate noise profile from initial silent period.
 
@@ -124,6 +124,7 @@ def estimate_noise_profile(noisy_signal, sample_rate, noise_duration=0.5):
         noisy_signal: Noisy audio signal
         sample_rate: Sample rate in Hz
         noise_duration: Duration of noise-only section (seconds)
+        n_fft: FFT size (defaults to signal length for matching dimensions)
 
     Returns:
         Noise power spectrum
@@ -132,8 +133,12 @@ def estimate_noise_profile(noisy_signal, sample_rate, noise_duration=0.5):
     noise_samples = int(noise_duration * sample_rate)
     noise_section = noisy_signal[:noise_samples]
 
-    # Compute FFT
-    noise_fft = rfft(noise_section)
+    # Use signal length as FFT size if not specified
+    if n_fft is None:
+        n_fft = len(noisy_signal)
+
+    # Compute FFT with specified size (zero-padding if needed)
+    noise_fft = rfft(noise_section, n=n_fft)
     noise_power = np.abs(noise_fft) ** 2
 
     return noise_power
@@ -157,6 +162,12 @@ def spectral_subtraction(noisy_signal, noise_power, sample_rate, alpha=2.0, beta
     noisy_fft = rfft(noisy_signal)
     noisy_magnitude = np.abs(noisy_fft)
     noisy_phase = np.angle(noisy_fft)
+
+    # Ensure noise power matches signal FFT size
+    if len(noise_power) != len(noisy_magnitude):
+        raise ValueError(f"Noise power spectrum size ({len(noise_power)}) must match "
+                        f"signal FFT size ({len(noisy_magnitude)}). Use n_fft parameter "
+                        f"in estimate_noise_profile().")
 
     # Spectral subtraction
     clean_magnitude = noisy_magnitude ** 2 - alpha * noise_power
@@ -349,7 +360,8 @@ def frame_based_noise_reduction(noisy_signal, sample_rate, frame_size=512, hop_s
     noise_estimation_frames = 10
     noise_estimation_samples = noise_estimation_frames * hop_size
     noise_power = estimate_noise_profile(noisy_signal[:noise_estimation_samples],
-                                        sample_rate, noise_estimation_samples/sample_rate)
+                                        sample_rate, noise_estimation_samples/sample_rate,
+                                        n_fft=frame_size)
 
     # Process frame by frame
     num_frames = 1 + (len(noisy_signal) - frame_size) // hop_size
